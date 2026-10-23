@@ -1,0 +1,1146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Simple Text Editor</title>
+<style>
+  :root {
+    --bg: #f5f6f8;
+    --editor-bg: #ffffff;
+    --toolbar-bg: #ffffff;
+    --text: #1e2229;
+    --muted: #6b7280;
+    --border: #e2e5ea;
+    --accent: #3b82f6;
+    --shadow: 0 1px 3px rgba(0,0,0,.08), 0 4px 14px rgba(0,0,0,.05);
+  }
+
+  body.dark {
+    --bg: #12141a;
+    --editor-bg: #1a1d24;
+    --toolbar-bg: #1e222b;
+    --text: #e5e8ee;
+    --muted: #8b93a3;
+    --border: #2c313c;
+    --accent: #60a5fa;
+    --shadow: 0 1px 3px rgba(0,0,0,.5), 0 4px 14px rgba(0,0,0,.4);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body { height: 100%; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+    display: flex;
+    flex-direction: column;
+    transition: background .25s ease, color .25s ease;
+  }
+
+  /* ---------- Toolbar ---------- */
+  .toolbar {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    flex-wrap: wrap;
+    padding: 10px 18px;
+    background: var(--toolbar-bg);
+    border-bottom: 1px solid var(--border);
+    box-shadow: var(--shadow);
+    transition: background .25s ease, border-color .25s ease;
+  }
+
+  .toolbar .brand {
+    font-weight: 600;
+    font-size: 15px;
+    letter-spacing: .3px;
+    margin-right: 6px;
+    white-space: nowrap;
+  }
+
+  .toolbar .brand span { color: var(--accent); }
+
+  .control {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .control label {
+    font-size: 12.5px;
+    color: var(--muted);
+    white-space: nowrap;
+  }
+
+  select, button {
+    font: inherit;
+    color: var(--text);
+    background: var(--editor-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 6px 10px;
+    cursor: pointer;
+    transition: border-color .15s ease, background .25s ease;
+  }
+
+  select:hover, button:hover { border-color: var(--accent); }
+
+  select:focus, button:focus, .editor:focus { outline: none; }
+
+  /* Formatting buttons */
+  .fmt-btn {
+    min-width: 34px;
+    padding: 6px 9px;
+    font-size: 14px;
+  }
+
+  .fmt-btn.active {
+    border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 15%, var(--editor-bg));
+  }
+
+  .fmt-btn.b { font-weight: 700; }
+  .fmt-btn.i { font-style: italic; font-family: Georgia, serif; }
+  .fmt-btn.u { text-decoration: underline; }
+  .fmt-btn.s { text-decoration: line-through; font-weight: 600; }
+
+  /* Color buttons */
+  .color-btn {
+    position: relative;
+    padding-bottom: 10px;
+  }
+
+  .color-btn .swatch {
+    position: absolute;
+    left: 7px;
+    right: 7px;
+    bottom: 4px;
+    height: 4px;
+    border-radius: 2px;
+    background: #e11d48;
+  }
+
+  .color-btn .hl-chip {
+    padding: 0 3px;
+    border-radius: 3px;
+    background: #fde047;
+  }
+
+  /* Custom color panel (replaces the native picker) */
+  .color-panel {
+    position: fixed;
+    z-index: 100;
+    width: 288px;
+    background: var(--toolbar-bg);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    box-shadow: var(--shadow);
+    padding: 12px;
+  }
+
+  .color-panel .swatch-grid {
+    display: grid;
+    grid-template-columns: repeat(12, 1fr);
+    gap: 4px;
+  }
+
+  .color-panel .cell {
+    width: 18px;
+    height: 18px;
+    border-radius: 4px;
+    cursor: pointer;
+    border: 1px solid rgba(128,128,128,.25);
+    transition: transform .08s ease;
+  }
+
+  .color-panel .cell:hover { transform: scale(1.2); }
+
+  .color-panel .cell.selected {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+  }
+
+  .panel-footer {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 12px;
+  }
+
+  .panel-preview {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12.5px;
+    color: var(--muted);
+  }
+
+  .preview-chip {
+    width: 22px;
+    height: 22px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: #e11d48;
+  }
+
+  .panel-footer input[type="color"] {
+    width: 36px;
+    height: 30px;
+    padding: 2px;
+    border-radius: 6px;
+  }
+
+  .panel-footer button { font-size: 12.5px; padding: 6px 12px; }
+
+  .apply-btn {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+    font-weight: 600;
+  }
+
+  .apply-btn:disabled { opacity: .45; cursor: default; }
+
+  .panel-hint {
+    font-size: 11.5px;
+    color: var(--muted);
+    margin-top: 8px;
+  }
+
+  .align-btn svg { display: block; }
+  .align-btn:hover svg line { stroke: var(--accent); }
+
+  .undo-btn {
+    min-width: 34px;
+    padding: 4px 8px;
+    display: flex;
+    align-items: center;
+  }
+
+  .undo-btn svg { display: block; }
+  .undo-btn:hover svg { stroke: var(--accent); }
+
+  .undo-btn:disabled { opacity: .35; cursor: default; }
+
+  .divider {
+    width: 1px;
+    height: 22px;
+    background: var(--border);
+  }
+
+  .download-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    padding: 6px 12px;
+  }
+
+  .download-btn.armed {
+    border-color: #ef4444;
+    color: #ef4444;
+    font-weight: 600;
+  }
+
+  .panes-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    padding: 6px 10px;
+  }
+
+  .panes-btn.active {
+    border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 15%, var(--editor-bg));
+  }
+
+  .panes-btn .count {
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+    color: var(--accent);
+  }
+
+  /* Font size slider */
+  input[type="range"] {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 150px;
+    height: 5px;
+    border-radius: 3px;
+    background: var(--border);
+    cursor: pointer;
+  }
+
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: var(--accent);
+    border: 2px solid #fff;
+    box-shadow: 0 1px 4px rgba(0,0,0,.3);
+  }
+
+  input[type="range"]::-moz-range-thumb {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--accent);
+    border: 2px solid #fff;
+    box-shadow: 0 1px 4px rgba(0,0,0,.3);
+  }
+
+  .size-value {
+    min-width: 42px;
+    text-align: center;
+    font-size: 12.5px;
+    font-variant-numeric: tabular-nums;
+    color: var(--muted);
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 3px 6px;
+  }
+
+  .spacer { flex: 1; }
+
+  /* Theme toggle */
+  .theme-btn {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 13px;
+    padding: 6px 12px;
+  }
+
+  .theme-btn .icon { font-size: 15px; line-height: 1; }
+
+  .status {
+    font-size: 12px;
+    color: var(--muted);
+    white-space: nowrap;
+  }
+
+  /* ---------- Editor ---------- */
+  .editor-wrap {
+    flex: 1;
+    display: flex;
+    padding: 22px;
+    min-height: 0;
+  }
+
+  .editor {
+    flex: 1;
+    overflow-y: auto;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--editor-bg);
+    color: var(--text);
+    padding: 22px 26px;
+    line-height: 1.65;
+    box-shadow: var(--shadow);
+    transition: background .25s ease, color .25s ease, border-color .25s ease;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+  }
+
+  .editor:focus { border-color: var(--accent); }
+
+  /* Multi-pane mode: fixed height, columns fill top-to-bottom then flow right */
+  .editor.multi {
+    column-fill: auto;
+    column-gap: 34px;
+    column-rule: 1px solid var(--border);
+    overflow-x: auto;
+    overflow-y: hidden;
+    height: 100%;
+  }
+
+  .editor:empty::before {
+    content: attr(data-placeholder);
+    color: var(--muted);
+    opacity: .6;
+  }
+
+  /* Word highlight (double-click) — pulses while active so all occurrences are easy to spot */
+  mark.word-hl {
+    background: color-mix(in srgb, var(--accent) 32%, transparent);
+    color: inherit;
+    border-radius: 3px;
+    padding: 0 1px;
+    animation: hlBlink 1.1s ease-in-out infinite;
+  }
+
+  @keyframes hlBlink {
+    0%, 100% {
+      background: color-mix(in srgb, var(--accent) 22%, transparent);
+    }
+    50% {
+      background: color-mix(in srgb, var(--accent) 88%, transparent);
+      color: #ffffff;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    mark.word-hl { animation: none; }
+  }
+
+  /* ---------- Footer ---------- */
+  .statusbar {
+    display: flex;
+    justify-content: flex-end;
+    gap: 22px;
+    padding: 7px 24px;
+    font-size: 12px;
+    color: var(--muted);
+    background: var(--toolbar-bg);
+    border-top: 1px solid var(--border);
+    transition: background .25s ease, border-color .25s ease;
+  }
+
+  .statusbar span { font-variant-numeric: tabular-nums; }
+
+  @media (max-width: 720px) {
+    .toolbar { gap: 12px; padding: 8px 12px; }
+    input[type="range"] { width: 100px; }
+    .editor-wrap { padding: 12px; }
+  }
+</style>
+</head>
+<body>
+
+  <div class="toolbar">
+    <div class="brand">✎ Simple<span>Editor</span></div>
+
+    <div class="control">
+      <label for="fontFamily">Font</label>
+      <select id="fontFamily">
+        <option value="Segoe UI, system-ui, sans-serif">Segoe UI</option>
+        <option value="Arial, Helvetica, sans-serif">Arial</option>
+        <option value="Georgia, serif">Georgia</option>
+        <option value="'Times New Roman', serif">Times New Roman</option>
+        <option value="'Courier New', monospace">Courier New</option>
+        <option value="Consolas, 'Cascadia Code', monospace">Consolas</option>
+        <option value="Verdana, sans-serif">Verdana</option>
+        <option value="Tahoma, sans-serif">Tahoma</option>
+        <option value="'Trebuchet MS', sans-serif">Trebuchet MS</option>
+        <option value="cursive">Comic / Cursive</option>
+      </select>
+    </div>
+
+    <div class="control">
+      <label for="fontSize">Size</label>
+      <input type="range" id="fontSize" min="10" max="48" step="1" value="18">
+      <span class="size-value" id="sizeValue">18px</span>
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="control">
+      <button class="undo-btn" id="undoBtn" title="Back / Undo (Ctrl+Z)" style="border:1px solid var(--border);">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5v0a5.5 5.5 0 0 1-5.5 5.5H11"/>
+        </svg>
+      </button>
+      <button class="undo-btn" id="redoBtn" title="Redo (Ctrl+Y)" style="border:1px solid var(--border);">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="m15 14 5-5-5-5"/><path d="M20 9H9.5A5.5 5.5 0 0 0 4 14.5v0A5.5 5.5 0 0 0 9.5 20H13"/>
+        </svg>
+      </button>
+    </div>
+
+    <div class="control">
+      <button class="fmt-btn b" id="boldBtn" title="Bold (Ctrl+B)">B</button>
+      <button class="fmt-btn i" id="italicBtn" title="Italic (Ctrl+I)">I</button>
+      <button class="fmt-btn u" id="underlineBtn" title="Underline (Ctrl+U)">U</button>
+      <button class="fmt-btn s" id="strikeBtn" title="Strikethrough">S</button>
+      <button class="fmt-btn color-btn" id="foreBtn" title="Text color (applies to selected text)">
+        <span style="font-weight:600;">A</span>
+        <span class="swatch" id="foreSwatch"></span>
+      </button>
+      <button class="fmt-btn color-btn" id="backBtn" title="Highlight color (applies to selected text)">
+        <span class="hl-chip" id="backChip">abc</span>
+        <span class="swatch" id="backSwatch" style="background:#fde047;"></span>
+      </button>
+    </div>
+
+    <div class="control">
+      <button class="fmt-btn align-btn" data-align="justifyLeft" title="Align left">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
+          <line x1="2" y1="3.5" x2="14" y2="3.5"/><line x1="2" y1="8" x2="9" y2="8"/><line x1="2" y1="12.5" x2="12" y2="12.5"/>
+        </svg>
+      </button>
+      <button class="fmt-btn align-btn" data-align="justifyCenter" title="Center text">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
+          <line x1="2" y1="3.5" x2="14" y2="3.5"/><line x1="4.5" y1="8" x2="11.5" y2="8"/><line x1="3" y1="12.5" x2="13" y2="12.5"/>
+        </svg>
+      </button>
+      <button class="fmt-btn align-btn" data-align="justifyRight" title="Align right">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
+          <line x1="2" y1="3.5" x2="14" y2="3.5"/><line x1="7" y1="8" x2="14" y2="8"/><line x1="4" y1="12.5" x2="14" y2="12.5"/>
+        </svg>
+      </button>
+    </div>
+
+    <div class="spacer"></div>
+
+    <button class="panes-btn" id="panesBtn" title="Add panes: split the screen and flow text across columns">
+      ⊞ Panes <span class="count" id="panesCount">1</span>
+    </button>
+
+    <button class="download-btn" id="resetBtn" title="Clear the document and restore default font, size and panes">⟲ Reset</button>
+    <button class="download-btn" id="downloadTxt" title="Download as plain text">⬇ .txt</button>
+    <button class="download-btn" id="downloadHtml" title="Download as HTML (keeps formatting)">⬇ .html</button>
+
+    <span class="status" id="status">Saved</span>
+
+    <button class="theme-btn" id="themeToggle" title="Toggle night theme">
+      <span class="icon" id="themeIcon">🌙</span>
+      <span id="themeLabel">Night</span>
+    </button>
+  </div>
+
+  <div class="editor-wrap">
+    <div class="editor" id="editor" contenteditable="true" data-placeholder="Start typing…" spellcheck="true"></div>
+  </div>
+
+  <div class="statusbar">
+    <span id="wordCount">0 words</span>
+    <span id="charCount">0 characters</span>
+  </div>
+
+  <!-- Custom color panel -->
+  <div class="color-panel" id="colorPanel" hidden>
+    <div class="swatch-grid" id="swatchGrid"></div>
+    <div class="panel-footer">
+      <div class="panel-preview">
+        <span class="preview-chip" id="previewChip"></span>
+        <span id="panelMode">Text color</span>
+      </div>
+      <input type="color" id="customColor" value="#e11d48" title="Pick a custom color">
+      <button id="colorCancelBtn">Cancel</button>
+      <button class="apply-btn" id="colorApplyBtn">Apply</button>
+    </div>
+    <div class="panel-hint" id="panelHint" hidden>Select some text first, then click Apply.</div>
+  </div>
+
+<script>
+(function () {
+  const editor      = document.getElementById('editor');
+  const fontFamily  = document.getElementById('fontFamily');
+  const fontSize    = document.getElementById('fontSize');
+  const sizeValue   = document.getElementById('sizeValue');
+  const themeToggle = document.getElementById('themeToggle');
+  const themeIcon   = document.getElementById('themeIcon');
+  const themeLabel  = document.getElementById('themeLabel');
+  const status      = document.getElementById('status');
+  const boldBtn     = document.getElementById('boldBtn');
+  const italicBtn   = document.getElementById('italicBtn');
+  const underlineBtn = document.getElementById('underlineBtn');
+  const strikeBtn    = document.getElementById('strikeBtn');
+  const alignBtns    = Array.prototype.slice.call(document.querySelectorAll('.align-btn'));
+  const undoBtn      = document.getElementById('undoBtn');
+  const redoBtn      = document.getElementById('redoBtn');
+  const panesBtn     = document.getElementById('panesBtn');
+  const panesCount   = document.getElementById('panesCount');
+  const foreBtn      = document.getElementById('foreBtn');
+  const backBtn      = document.getElementById('backBtn');
+  const foreSwatch   = document.getElementById('foreSwatch');
+  const backSwatch   = document.getElementById('backSwatch');
+  const backChip     = document.getElementById('backChip');
+  const colorPanel   = document.getElementById('colorPanel');
+  const swatchGrid   = document.getElementById('swatchGrid');
+  const previewChip  = document.getElementById('previewChip');
+  const panelMode    = document.getElementById('panelMode');
+  const panelHint    = document.getElementById('panelHint');
+  const customColor  = document.getElementById('customColor');
+  const applyBtn     = document.getElementById('colorApplyBtn');
+  const cancelBtn    = document.getElementById('colorCancelBtn');
+  const wordCountEl  = document.getElementById('wordCount');
+  const charCountEl = document.getElementById('charCount');
+
+  document.execCommand('styleWithCSS', false, false);
+
+  const STORAGE_KEY = 'simpleEditor.settings';
+
+  var panes = 1; // 1 = single page, 2-4 = split panes
+  var defaultFont = fontFamily.value; // editor-wide font (used when nothing is selected)
+  var defaultSize = fontSize.value;   // editor-wide size (used when nothing is selected)
+
+  function applyFont() {
+    editor.style.fontFamily = defaultFont;
+    editor.style.fontSize = defaultSize + 'px';
+    sizeValue.textContent = fontSize.value + 'px';
+  }
+
+  // Size changes (slider or wheel) follow the same rules as the font family:
+  // word-highlights -> every occurrence; selection -> only that text; else -> editor default
+  function onSizeChanged() {
+    var px = fontSize.value + 'px';
+    sizeValue.textContent = px;
+    if (currentMarkCount() > 1) {
+      applyToAllMarks('fontSize', px);
+    } else if (savedRange && !savedRange.collapsed) {
+      applySizeToRange(px);
+    } else {
+      defaultSize = fontSize.value;
+      applyFont();
+    }
+    save();
+  }
+
+  function applySizeToRange(px) {
+    // If the range already covers one whole element (the span we wrapped on the
+    // previous slider step), restyle it in place instead of nesting another span
+    var sc = savedRange.startContainer;
+    if (sc === savedRange.endContainer && sc.nodeType === 1 &&
+        savedRange.startOffset === 0 && savedRange.endOffset === sc.childNodes.length && sc.style) {
+      sc.style.fontSize = px;
+      save();
+      return;
+    }
+    applyStyleToRange('fontSize', px);
+  }
+
+  function applyPanes() {
+    if (panes > 1) {
+      editor.classList.add('multi');
+      editor.style.columnCount = panes;
+    } else {
+      editor.classList.remove('multi');
+      editor.style.columnCount = '';
+    }
+    panesCount.textContent = panes;
+    panesBtn.classList.toggle('active', panes > 1);
+  }
+
+  function applyTheme(dark) {
+    document.body.classList.toggle('dark', dark);
+    themeIcon.textContent  = dark ? '☀️' : '🌙';
+    themeLabel.textContent = dark ? 'Day' : 'Night';
+  }
+
+  let saveTimer = null;
+  function save() {
+    status.textContent = 'Saving…';
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(function () {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({
+        html: editor.innerHTML,
+        font: defaultFont,
+        size: defaultSize,
+        panes: panes,
+        dark: document.body.classList.contains('dark')
+      }));
+      status.textContent = 'Saved';
+    }, 400);
+  }
+
+  function load() {
+    let data = {};
+    try { data = JSON.parse(localStorage.getItem(STORAGE_KEY)) || {}; } catch (e) {}
+    if (data.html) editor.innerHTML = data.html;
+    else if (data.text) editor.textContent = data.text; // migrate from plain-text version
+    if (data.font) fontFamily.value = data.font;
+    defaultFont = fontFamily.value;
+    if (data.size) fontSize.value = data.size;
+    defaultSize = fontSize.value;
+    if (data.panes) panes = Math.min(4, Math.max(1, parseInt(data.panes, 10) || 1));
+    applyTheme(Boolean(data.dark));
+    applyFont();
+    applyPanes();
+    updateCounts();
+  }
+
+  function updateCounts() {
+    const text = editor.textContent || '';
+    const words = text.trim() ? text.trim().split(/\s+/).length : 0;
+    wordCountEl.textContent = words + (words === 1 ? ' word' : ' words');
+    charCountEl.textContent = text.length + ' characters';
+  }
+
+  function updateFmtButtons() {
+    boldBtn.classList.toggle('active', document.queryCommandState('bold'));
+    italicBtn.classList.toggle('active', document.queryCommandState('italic'));
+    underlineBtn.classList.toggle('active', document.queryCommandState('underline'));
+    strikeBtn.classList.toggle('active', document.queryCommandState('strikeThrough'));
+    alignBtns.forEach(function (btn) {
+      btn.classList.toggle('active', document.queryCommandState(btn.dataset.align));
+    });
+  }
+
+  // Map execCommand names to the CSS property/value that reproduces them on a span
+  var fmtStyleMap = {
+    bold: ['fontWeight', 'bold'],
+    italic: ['fontStyle', 'italic'],
+    underline: ['textDecoration', 'underline'],
+    strikeThrough: ['textDecoration', 'line-through']
+  };
+
+  function applyFormat(cmd) {
+    // If the selection sits inside active word-highlights, format EVERY occurrence
+    if (fmtStyleMap[cmd] && currentMarkCount() > 1) {
+      applyToAllMarks(fmtStyleMap[cmd][0], fmtStyleMap[cmd][1]);
+      save();
+      return;
+    }
+    editor.focus();
+    document.execCommand(cmd, false, null);
+    updateFmtButtons();
+    save();
+  }
+
+  function download(filename, content, mime) {
+    const blob = new Blob([content], { type: mime });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  fontFamily.addEventListener('change', function () {
+    var count = currentMarkCount();
+    if (count > 1) {
+      // Word-highlights active: apply the new font to every occurrence
+      applyToAllMarks('fontFamily', fontFamily.value);
+    } else if (savedRange && !savedRange.collapsed) {
+      // Selection exists: change font ONLY for the selected text
+      applyStyleToRange('fontFamily', fontFamily.value);
+      editor.focus(); // dropdown stole focus; give the selection back
+    } else {
+      // No selection: change the editor-wide default font
+      defaultFont = fontFamily.value;
+      applyFont();
+    }
+    save();
+  });
+  fontSize.addEventListener('input', onSizeChanged);
+  themeToggle.addEventListener('click', function () {
+    applyTheme(!document.body.classList.contains('dark'));
+    save();
+  });
+  editor.addEventListener('input', function () { updateCounts(); save(); });
+  editor.addEventListener('keyup', updateFmtButtons);
+  editor.addEventListener('mouseup', updateFmtButtons);
+
+  // Keep the editor selection alive when clicking the format buttons
+  [boldBtn, italicBtn, underlineBtn, strikeBtn].concat(alignBtns).forEach(function (btn) {
+    btn.addEventListener('mousedown', function (e) { e.preventDefault(); });
+  });
+
+  boldBtn.addEventListener('click', function () { applyFormat('bold'); });
+  italicBtn.addEventListener('click', function () { applyFormat('italic'); });
+  underlineBtn.addEventListener('click', function () { applyFormat('underline'); });
+  strikeBtn.addEventListener('click', function () { applyFormat('strikeThrough'); });
+  alignBtns.forEach(function (btn) {
+    btn.addEventListener('click', function () { applyFormat(btn.dataset.align); });
+  });
+
+  // ---- Text & highlight color ----
+  // Clicking a toolbar button deselects the text, so remember the selection
+  // when the button is pressed and restore it when the color comes back.
+  var savedRange = null;
+
+  function saveSelection() {
+    var sel = window.getSelection();
+    if (sel.rangeCount && !sel.isCollapsed && editor.contains(sel.getRangeAt(0).commonAncestorContainer)) {
+      savedRange = sel.getRangeAt(0).cloneRange();
+    }
+    // Note: does NOT clear savedRange — the selectionchange tracker below owns that,
+    // because clicking toolbar controls (select dropdown etc.) can drop the live selection
+  }
+
+  // Keep savedRange in sync with the editor selection.
+  // IMPORTANT: a collapsed selection only clears savedRange when the EDITOR has
+  // focus — clicking the font dropdown/slider also collapses the selection, but
+  // focus is on the control, and that must NOT erase the selection we apply to.
+  document.addEventListener('selectionchange', function () {
+    var sel = window.getSelection();
+    if (!sel.rangeCount) return;
+    var r = sel.getRangeAt(0);
+    if (!editor.contains(r.commonAncestorContainer)) return;
+    if (!r.collapsed) {
+      savedRange = r.cloneRange();
+    } else if (document.activeElement === editor) {
+      savedRange = null;
+    }
+  });
+
+  function restoreSelection() {
+    editor.focus();
+    if (savedRange) {
+      var sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(savedRange);
+    }
+  }
+
+  // Apply a style directly to the saved selection via DOM.
+  // (execCommand-based coloring silently fails while other controls hold focus,
+  //  so we wrap the range ourselves — deterministic for colors AND fonts.)
+  function applyStyleToRange(styleProp, value) {
+    if (!savedRange) return;
+    var span = document.createElement('span');
+    span.style[styleProp] = value;
+    try {
+      savedRange.surroundContents(span);
+    } catch (e) {
+      // Range crosses element boundaries: extract and wrap instead
+      var frag = savedRange.extractContents();
+      span.appendChild(frag);
+      savedRange.insertNode(span);
+    }
+    // Keep the recolored text selected so another palette click restacks on it
+    var r = document.createRange();
+    r.selectNodeContents(span);
+    savedRange = r;
+    var sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(savedRange);
+    save();
+  }
+
+  // preventDefault on mousedown keeps focus + selection in the editor alive
+  foreBtn.addEventListener('mousedown', function (e) { e.preventDefault(); });
+  backBtn.addEventListener('mousedown', function (e) { e.preventDefault(); });
+
+  // ---- Custom color panel with Apply button ----
+  var colorMode = 'fore';
+  var selectedColor = '#e11d48';
+
+  function hslToHex(h, s, l) {
+    var a = s * Math.min(l, 1 - l);
+    var f = function (n) {
+      var k = (n + h / 30) % 12;
+      var c = l - a * Math.max(-1, Math.min(k - 3, Math.min(9 - k, 1)));
+      return Math.round(255 * c).toString(16).padStart(2, '0');
+    };
+    return '#' + f(0) + f(8) + f(4);
+  }
+
+  (function buildSwatches() {
+    var colors = [];
+    [0.2, 0.35, 0.5, 0.65, 0.8].forEach(function (l) {
+      for (var h = 0; h < 360; h += 30) colors.push(hslToHex(h, 0.85, l));
+    });
+    for (var i = 0; i <= 11; i++) colors.push(hslToHex(0, 0, i / 11)); // grayscale row
+    colors.forEach(function (c) {
+      var cell = document.createElement('div');
+      cell.className = 'cell';
+      cell.style.background = c;
+      cell.title = c;
+      cell.addEventListener('click', function () { setSelectedColor(c); });
+      swatchGrid.appendChild(cell);
+    });
+  })();
+
+  function setSelectedColor(c) {
+    selectedColor = c;
+    previewChip.style.background = c;
+    if (/^#[0-9a-f]{6}$/i.test(c)) customColor.value = c;
+    Array.prototype.forEach.call(swatchGrid.children, function (el) {
+      el.classList.toggle('selected', el.title.toLowerCase() === c.toLowerCase());
+    });
+  }
+
+  function openPanel(mode, btn) {
+    saveSelection();
+    colorMode = mode;
+    panelMode.textContent = mode === 'fore' ? 'Text color' : 'Highlight color';
+    setSelectedColor(selectedColor);
+    colorPanel.hidden = false;
+    var rect = btn.getBoundingClientRect();
+    var left = Math.min(rect.left, window.innerWidth - colorPanel.offsetWidth - 10);
+    colorPanel.style.left = Math.max(10, left) + 'px';
+    colorPanel.style.top = (rect.bottom + 6) + 'px';
+    countTargetMarks();
+    var hasSel = (!!savedRange && !savedRange.collapsed) || markCount > 1;
+    applyBtn.disabled = !hasSel;
+    if (markCount > 1) {
+      panelHint.textContent = 'Will color all ' + markCount + ' selected (blinking) occurrences.';
+      panelHint.hidden = false;
+    } else if (!hasSel) {
+      panelHint.textContent = 'Select some text first, then click Apply.';
+      panelHint.hidden = false;
+    } else {
+      panelHint.hidden = true;
+    }
+  }
+
+  function closePanel() { colorPanel.hidden = true; }
+
+  // When the selection sits inside the blue word-highlights, Apply should
+  // recolor EVERY occurrence, not just the selected one
+  var markCount = 0;
+
+  function countTargetMarks() {
+    markCount = 0;
+    // The blinking highlights ARE a standing selection: while they exist, every
+    // change targets all occurrences — even if the caret has moved since.
+    // Exception: an explicit multi-word block drag overrides and wins.
+    if (savedRange && !savedRange.collapsed && /\s/.test(savedRange.toString())) return;
+    markCount = editor.querySelectorAll('mark.word-hl').length;
+  }
+
+  function applyToAllMarks(styleProp, value) {
+    var marks = editor.querySelectorAll('mark.word-hl');
+    // Remember which occurrence held the selection so we can restore it after
+    Array.prototype.forEach.call(marks, function (mark) {
+      var r = document.createRange();
+      r.selectNodeContents(mark);
+      var span = document.createElement('span');
+      span.style[styleProp] = value;
+      try { r.surroundContents(span); } catch (e) {}
+    });
+    if (savedRange) {
+      var n = savedRange.startContainer;
+      var el = n.nodeType === 3 ? n.parentElement : n;
+      var anchorMark = el && el.closest ? el.closest('mark.word-hl') : null;
+      if (anchorMark) {
+        var sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(savedRange);
+      }
+    }
+    save();
+  }
+
+  // Shared helper: re-check the live selection and count highlighted occurrences
+  function currentMarkCount() {
+    saveSelection();
+    countTargetMarks();
+    return markCount;
+  }
+
+  // Keep the editor's selection alive while clicking around inside the panel
+  colorPanel.addEventListener('mousedown', function (e) {
+    if (e.target !== customColor) e.preventDefault();
+  });
+
+  foreBtn.addEventListener('click', function () { openPanel('fore', foreBtn); });
+  backBtn.addEventListener('click', function () { openPanel('back', backBtn); });
+
+  customColor.addEventListener('input', function () { setSelectedColor(customColor.value); });
+  cancelBtn.addEventListener('click', closePanel);
+
+  applyBtn.addEventListener('click', function () {
+    saveSelection(); // refresh from the live selection if one still exists
+    countTargetMarks();
+    var prop = 'color', swatchFn = function () { foreSwatch.style.background = selectedColor; };
+    if (colorMode === 'back') {
+      prop = 'backgroundColor';
+      swatchFn = function () {
+        backSwatch.style.background = selectedColor;
+        backChip.style.background = selectedColor;
+      };
+    }
+    swatchFn();
+    if (markCount > 1) {
+      applyToAllMarks(prop, selectedColor); // the blinking set is the target
+    } else if (savedRange && !savedRange.collapsed) {
+      applyStyleToRange(prop, selectedColor);
+    }
+    closePanel();
+    editor.focus(); // keep the selection active for the next change
+  });
+
+  // Close the panel when clicking anywhere outside it
+  document.addEventListener('mousedown', function (e) {
+    if (colorPanel.hidden) return;
+    if (!colorPanel.contains(e.target) && !foreBtn.contains(e.target) && !backBtn.contains(e.target)) {
+      closePanel();
+    }
+  });
+
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && !colorPanel.hidden) closePanel();
+  });
+
+  function runHistory(cmd) {
+    editor.focus();
+    document.execCommand(cmd, false, null);
+    updateCounts();
+    save();
+  }
+
+  undoBtn.addEventListener('click', function () { runHistory('undo'); });
+  redoBtn.addEventListener('click', function () { runHistory('redo'); });
+
+  panesBtn.addEventListener('click', function () {
+    panes = panes % 4 + 1; // cycles 1 → 2 → 3 → 4 → 1
+    applyPanes();
+    save();
+  });
+
+  document.getElementById('downloadTxt').addEventListener('click', function () {
+    download('document.txt', editor.innerText, 'text/plain;charset=utf-8');
+  });
+
+  // ---- Reset: clear content + restore default formatting settings ----
+  // Two-click inline confirm (native confirm() dialogs can be auto-dismissed
+  // on file:// pages, which silently cancelled the old one-click reset)
+  var resetBtn = document.getElementById('resetBtn');
+  var resetArmed = false;
+  var resetTimer = null;
+  var resetLabel = '⟲ Reset';
+
+  function disarmReset() {
+    resetArmed = false;
+    clearTimeout(resetTimer);
+    resetBtn.textContent = resetLabel;
+    resetBtn.classList.remove('armed');
+  }
+
+  function doReset() {
+    clearTimeout(saveTimer); // stop a pending auto-save from restoring old content
+    editor.innerHTML = '';
+    savedRange = null;
+    fontFamily.value = fontFamily.options[0].value;
+    fontSize.value = 18;
+    defaultFont = fontFamily.value;
+    defaultSize = fontSize.value;
+    panes = 1;
+    applyFont();
+    applyPanes();
+    updateCounts();
+    updateFmtButtons();
+    localStorage.removeItem(STORAGE_KEY);
+    editor.focus();
+  }
+
+  resetBtn.addEventListener('click', function () {
+    if (!resetArmed) {
+      resetArmed = true;
+      resetBtn.textContent = '⚠ Click again to confirm';
+      resetBtn.classList.add('armed');
+      resetTimer = setTimeout(disarmReset, 3000);
+      return;
+    }
+    disarmReset();
+    doReset();
+  });
+  document.getElementById('downloadHtml').addEventListener('click', function () {
+    const html = '<!DOCTYPE html>\n<html>\n<head>\n<meta charset="UTF-8">\n<title>Document</title>\n'
+      + '<style>body{font-family:' + defaultFont + ';font-size:' + defaultSize + 'px;line-height:1.65;margin:40px auto;max-width:720px;}</style>\n'
+      + '</head>\n<body>\n' + editor.innerHTML + '\n</body>\n</html>';
+    download('document.html', html, 'text/html;charset=utf-8');
+  });
+
+  // Keyboard shortcut: Ctrl+Shift+D toggles theme
+  document.addEventListener('keydown', function (e) {
+    if (e.ctrlKey && e.shiftKey && e.code === 'KeyD') {
+      e.preventDefault();
+      themeToggle.click();
+    }
+    if (e.key === 'Escape') clearHighlight();
+  });
+
+  // ---- Mouse-wheel zoom over the editor ----
+  // Wheel = change font size; Shift+Wheel = scroll the document (sideways in pane mode)
+  editor.addEventListener('wheel', function (e) {
+    e.preventDefault();
+    if (e.shiftKey) {
+      if (panes > 1) editor.scrollLeft += e.deltaY;
+      else editor.scrollTop += e.deltaY;
+      return;
+    }
+    var step = e.deltaY < 0 ? 1 : -1;
+    var size = parseInt(fontSize.value, 10) + step;
+    size = Math.min(parseInt(fontSize.max, 10), Math.max(parseInt(fontSize.min, 10), size));
+    if (String(size) !== fontSize.value) {
+      fontSize.value = size;
+      onSizeChanged();
+    }
+  }, { passive: false });
+
+  // ---- Double-click a word to highlight every occurrence ----
+  function escapeRegExp(s) {
+    return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+
+  function clearHighlight() {
+    var marks = editor.querySelectorAll('mark.word-hl');
+    if (!marks.length) return;
+    Array.prototype.forEach.call(marks, function (m) {
+      var parent = m.parentNode;
+      while (m.firstChild) parent.insertBefore(m.firstChild, m);
+      parent.removeChild(m);
+      parent.normalize();
+    });
+    save();
+  }
+
+  function highlightWord(word) {
+    clearHighlight();
+    if (!/^[\w]+$/.test(word)) return; // plain words only
+    var needle = word.toLowerCase();
+    var re = new RegExp('\\b' + escapeRegExp(word) + '\\b', 'gi');
+    var walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT, {
+      acceptNode: function (n) {
+        return n.nodeValue && n.nodeValue.toLowerCase().indexOf(needle) !== -1
+          ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
+      }
+    });
+    var nodes = [];
+    while (walker.nextNode()) nodes.push(walker.currentNode);
+    var found = false;
+    nodes.forEach(function (node) {
+      var frag = document.createDocumentFragment();
+      var text = node.nodeValue, last = 0, m;
+      re.lastIndex = 0;
+      while ((m = re.exec(text))) {
+        if (m.index === re.lastIndex) { re.lastIndex++; continue; }
+        if (m.index > last) frag.appendChild(document.createTextNode(text.slice(last, m.index)));
+        var mark = document.createElement('mark');
+        mark.className = 'word-hl';
+        mark.textContent = m[0];
+        frag.appendChild(mark);
+        last = m.index + m[0].length;
+        found = true;
+      }
+      frag.appendChild(document.createTextNode(text.slice(last)));
+      node.parentNode.replaceChild(frag, node);
+    });
+    if (found) save();
+  }
+
+  editor.addEventListener('dblclick', function (e) {
+    var sel = window.getSelection();
+    var word = sel ? sel.toString().trim() : '';
+    if (word) highlightWord(word);
+    // Wrapping words in <mark> destroyed the native selection —
+    // re-select the double-clicked word so tools like the color picker can use it
+    var at = document.caretRangeFromPoint ? document.caretRangeFromPoint(e.clientX, e.clientY) : null;
+    if (at) {
+      var node = at.startContainer;
+      var el = node.nodeType === 3 ? node.parentElement : node;
+      var mark = el && el.closest ? el.closest('mark.word-hl') : null;
+      if (mark) {
+        var r = document.createRange();
+        r.selectNodeContents(mark);
+        sel.removeAllRanges();
+        sel.addRange(r);
+      }
+    }
+  });
+
+  // A plain click removes any active word highlight
+  editor.addEventListener('click', clearHighlight);
+
+  load();
+  editor.focus();
+})();
+</script>
+</body>
+</html>
