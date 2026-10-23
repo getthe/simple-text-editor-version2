@@ -268,6 +268,62 @@
     color: var(--accent);
   }
 
+  .scan-btn {
+    font-size: 12.5px;
+    padding: 6px 9px;
+    color: var(--muted);
+  }
+
+  .scan-btn.scanned { color: var(--accent); font-weight: 600; }
+
+  /* Font scan can take a long time on giant libraries — show the hourglass
+     over the whole page so it doesn't look like the app hung */
+  body.fontscan-busy,
+  body.fontscan-busy * {
+    cursor: wait !important;
+  }
+
+  /* Blinking "Loading" pill — floats over the bottom-LEFT corner of the editor
+     (opposite the counts pill), reserving no toolbar or editor layout space.
+     Shown during the async font scan; a native <select> can't paint its own
+     busy state while its popup modal loop is open, so we surface it here. */
+  .loading-ind {
+    display: none;
+    position: absolute;
+    left: 34px;
+    bottom: 34px;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 12px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--accent);
+    white-space: nowrap;
+    background: color-mix(in srgb, var(--editor-bg) 82%, transparent);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    box-shadow: var(--shadow);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+    pointer-events: none;
+    user-select: none;
+    z-index: 5;
+  }
+
+  .loading-ind.show {
+    display: inline-flex;
+    animation: loadBlink 1s ease-in-out infinite;
+  }
+
+  @keyframes loadBlink {
+    0%, 100% { opacity: 0.35; }
+    50% { opacity: 1; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .loading-ind.show { animation: none; opacity: 1; }
+  }
+
   /* Font size slider */
   input[type="range"] {
     -webkit-appearance: none;
@@ -334,6 +390,7 @@
   .editor-wrap {
     flex: 1;
     display: flex;
+    position: relative; /* anchor for the floating counts overlay */
     padding: 22px;
     min-height: 0;
   }
@@ -345,7 +402,8 @@
     border-radius: 12px;
     background: var(--editor-bg);
     color: var(--text);
-    padding: 22px 26px;
+    padding: 22px 26px 48px; /* extra bottom room so text clears the floating counts */
+    scroll-padding-bottom: 40px;
     line-height: 1.65;
     box-shadow: var(--shadow);
     transition: background .25s ease, color .25s ease, border-color .25s ease;
@@ -394,16 +452,25 @@
     mark.word-hl { animation: none; }
   }
 
-  /* ---------- Footer ---------- */
+  /* ---------- Floating counts: overlay pill, reserves NO editor height ---------- */
   .statusbar {
+    position: absolute;
+    right: 34px;
+    bottom: 34px;
     display: flex;
     justify-content: flex-end;
-    gap: 22px;
-    padding: 7px 24px;
+    gap: 18px;
+    padding: 4px 12px;
     font-size: 12px;
     color: var(--muted);
-    background: var(--toolbar-bg);
-    border-top: 1px solid var(--border);
+    background: color-mix(in srgb, var(--editor-bg) 82%, transparent);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    box-shadow: var(--shadow);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+    pointer-events: none; /* clicks pass straight through to the editor */
+    user-select: none;
     transition: background .25s ease, border-color .25s ease;
   }
 
@@ -413,6 +480,41 @@
     .toolbar { gap: 12px; padding: 8px 12px; }
     input[type="range"] { width: 100px; }
     .editor-wrap { padding: 12px; }
+  }
+
+  /* ---------- Print: only the document, on paper-friendly styling ---------- */
+  @media print {
+    .toolbar, .statusbar, .color-panel, .loading-ind { display: none !important; }
+
+    body {
+      display: block;
+      height: auto;
+      background: #ffffff !important;
+    }
+
+    .editor-wrap { display: block; padding: 0; }
+
+    .editor {
+      height: auto !important;
+      overflow: visible !important;
+      column-count: auto !important; /* panes flow back into normal pages */
+      border: none;
+      box-shadow: none;
+      background: #ffffff !important;
+      color: #000000;
+    }
+
+    /* Night theme must not bleed onto paper: force black text where the user
+       didn't apply an explicit color */
+    body.dark .editor { color: #000000; }
+
+    /* Search highlights are screen-only aids */
+    mark.word-hl {
+      background: transparent !important;
+      color: inherit !important;
+      animation: none !important;
+      padding: 0;
+    }
   }
 </style>
 </head>
@@ -435,6 +537,7 @@
         <option value="'Trebuchet MS', sans-serif">Trebuchet MS</option>
         <option value="cursive">Comic / Cursive</option>
       </select>
+      <button class="scan-btn" id="scanFontsBtn" title="Load all fonts installed on this computer into the list">🔤 System</button>
     </div>
 
     <div class="control">
@@ -497,6 +600,8 @@
       ⊞ Panes <span class="count" id="panesCount">1</span>
     </button>
 
+    <button class="download-btn" id="printBtn" title="Print the document (Ctrl+P)">🖨 Print</button>
+    <button class="download-btn" id="saveBtn" title="Save with the file dialog (HTML keeps all formatting)">💾 Save As</button>
     <button class="download-btn" id="resetBtn" title="Clear the document and restore default font, size and panes">⟲ Reset</button>
     <button class="download-btn" id="downloadTxt" title="Download as plain text">⬇ .txt</button>
     <button class="download-btn" id="downloadHtml" title="Download as HTML (keeps formatting)">⬇ .html</button>
@@ -511,11 +616,11 @@
 
   <div class="editor-wrap">
     <div class="editor" id="editor" contenteditable="true" data-placeholder="Start typing…" spellcheck="true"></div>
-  </div>
-
-  <div class="statusbar">
-    <span id="wordCount">0 words</span>
-    <span id="charCount">0 characters</span>
+    <div class="statusbar">
+      <span id="wordCount">0 words</span>
+      <span id="charCount">0 characters</span>
+    </div>
+    <span class="loading-ind" id="loadingInd" title="Working…">⏳ Loading…</span>
   </div>
 
   <!-- Custom color panel -->
@@ -650,8 +755,19 @@
     try { data = JSON.parse(localStorage.getItem(STORAGE_KEY)) || {}; } catch (e) {}
     if (data.html) editor.innerHTML = data.html;
     else if (data.text) editor.textContent = data.text; // migrate from plain-text version
-    if (data.font) fontFamily.value = data.font;
-    defaultFont = fontFamily.value;
+    if (data.font) {
+      fontFamily.value = data.font;
+      if (fontFamily.value !== data.font) {
+        // Saved font is a system font not yet in the list: keep it selectable
+        const opt = document.createElement('option');
+        opt.value = data.font;
+        opt.textContent = data.font.replace(/"/g, '').split(',')[0];
+        opt.id = 'savedFontOpt';
+        fontFamily.appendChild(opt);
+        fontFamily.value = data.font;
+      }
+    }
+    defaultFont = fontFamily.value || defaultFont;
     if (data.size) fontSize.value = data.size;
     defaultSize = fontSize.value;
     if (data.panes) panes = Math.min(4, Math.max(1, parseInt(data.panes, 10) || 1));
@@ -660,6 +776,153 @@
     applyPanes();
     updateCounts();
   }
+
+  // ---- System font enumeration (Local Font Access API: Chrome / Edge) ----
+  var scanFontsBtn = document.getElementById('scanFontsBtn');
+  var loadingInd = document.getElementById('loadingInd');
+  var FONTS_CACHE_KEY = 'simpleEditor.fonts'; // cached family names, survives restarts
+  var pendingSystemFonts = null; // cached families awaiting LAZY build (avoids the startup rebuild)
+
+  // Turn the busy feedback on/off: hourglass over the whole page + the blinking
+  // "Loading" chip next to the color buttons. Used by any long-running op.
+  function setBusy(on) {
+    document.body.classList.toggle('fontscan-busy', !!on);
+    if (loadingInd) loadingInd.classList.toggle('show', !!on);
+  }
+
+  function cacheFonts(families) {
+    try { localStorage.setItem(FONTS_CACHE_KEY, JSON.stringify(families)); } catch (e) {}
+  }
+
+  function readFontsCache() {
+    try {
+      var list = JSON.parse(localStorage.getItem(FONTS_CACHE_KEY));
+      return Array.isArray(list) && list.length ? list : null;
+    } catch (e) { return null; }
+  }
+
+  // ---- Full-catalog cache in IndexedDB ----
+  // localStorage only keeps the compact, deduped FAMILY list. To enlist the
+  // ENTIRE font set (every face/style/full/PostScript name) — which can be
+  // humongous for a huge library — we persist it to IndexedDB, whose storage
+  // quota is far larger than localStorage's ~5MB. The family list stays in
+  // localStorage purely so the dropdown can hydrate instantly on next load.
+  var FONTDB_NAME = 'simpleEditor.fontdb', FONTDB_STORE = 'kv';
+  var allFaces = null; // in-memory mirror of the full catalog for this session
+
+  function idbWrite(value) {
+    try {
+      var req = indexedDB.open(FONTDB_NAME, 1);
+      req.onupgradeneeded = function () { req.result.createObjectStore(FONTDB_STORE); };
+      req.onsuccess = function () {
+        var db = req.result;
+        var tx = db.transaction(FONTDB_STORE, 'readwrite');
+        tx.objectStore(FONTDB_STORE).put(value, 'faces');
+        tx.oncomplete = function () { db.close(); };
+      };
+      req.onerror = function () { /* IDB unavailable; localStorage families still work */ };
+    } catch (e) { /* indexedDB missing (private mode etc.) — degrade silently */ }
+  }
+
+  function idbReadFaces(cb) {
+    try {
+      var req = indexedDB.open(FONTDB_NAME, 1);
+      req.onupgradeneeded = function () { req.result.createObjectStore(FONTDB_STORE); };
+      req.onsuccess = function () {
+        var db = req.result;
+        var get = db.transaction(FONTDB_STORE, 'readonly').objectStore(FONTDB_STORE).get('faces');
+        get.onsuccess = function () { cb(get.result || null); db.close(); };
+        get.onerror = function () { cb(null); db.close(); };
+      };
+      req.onerror = function () { cb(null); };
+    } catch (e) { cb(null); }
+  }
+
+  function populateSystemFonts(families) {
+    var group = document.getElementById('sysFontGroup');
+    if (!group) {
+      group = document.createElement('optgroup');
+      group.id = 'sysFontGroup';
+      group.label = 'System fonts';
+      fontFamily.appendChild(group);
+    }
+    var saved = defaultFont;
+    var frag = document.createDocumentFragment();
+    families.forEach(function (f) {
+      var cssVal = '"' + f + '", sans-serif';
+      var opt = document.createElement('option');
+      opt.value = cssVal;
+      opt.textContent = f;
+      opt.style.fontFamily = cssVal; // preview each option in its own typeface
+      frag.appendChild(opt);
+    });
+    group.innerHTML = '';
+    group.appendChild(frag); // one batched insert instead of thousands of reflows
+    // If the current font matches a discovered family, sync the dropdown to it
+    var match = families.filter(function (f) {
+      return saved && saved.toLowerCase().indexOf(f.toLowerCase()) !== -1;
+    })[0];
+    if (match) {
+      fontFamily.value = '"' + match + '", sans-serif';
+      defaultFont = fontFamily.value;
+      applyFont();
+    }
+  }
+
+  // Build the (potentially enormous) System fonts list only when it's first
+  // needed, so opening the app stays instant. After the first Font-menu open,
+  // the list is fully built and cached in the DOM for the rest of the session.
+  function ensureSystemFontsLoaded() {
+    if (!pendingSystemFonts) return;
+    var list = pendingSystemFonts;
+    pendingSystemFonts = null;
+    populateSystemFonts(list);
+  }
+  fontFamily.addEventListener('mousedown', ensureSystemFontsLoaded);
+  fontFamily.addEventListener('focus', ensureSystemFontsLoaded);
+
+  scanFontsBtn.addEventListener('click', function () {
+    if (!window.queryLocalFonts) {
+      status.textContent = 'Font scan not supported here';
+      setTimeout(function () { status.textContent = 'Saved'; }, 2500);
+      return;
+    }
+    status.textContent = 'Scanning fonts…';
+    scanFontsBtn.textContent = '🔤 …';
+    setBusy(true); // hourglass + blinking Loading chip until the scan settles
+    window.queryLocalFonts().then(function (fonts) {
+      // Let the Loading chip paint (and the permission prompt settle) before the
+      // heavy dedupe/populate work blocks the main thread
+      requestAnimationFrame(function () {
+      var seen = {}, families = [];
+      fonts.forEach(function (f) {
+        if (!seen[f.family]) { seen[f.family] = 1; families.push(f.family); }
+      });
+      families.sort(function (a, b) { return a.localeCompare(b); });
+      populateSystemFonts(families);
+      pendingSystemFonts = null; // freshly built from the scan; nothing to lazy-load
+      cacheFonts(families); // next launch loads instantly from cache
+      // Enlist the ENTIRE catalog (every face, not just deduped families) into
+      // IndexedDB — kept regardless of how large it gets.
+      allFaces = fonts.map(function (f) {
+        return { family: f.family, style: f.style, fullName: f.fullName, postscriptName: f.postscriptName };
+      });
+      idbWrite(allFaces);
+      scanFontsBtn.textContent = '🔤 ' + families.length;
+      scanFontsBtn.classList.add('scanned');
+      scanFontsBtn.title = families.length + ' families (' + allFaces.length + ' faces) cached — click to rescan after installing new fonts';
+      status.textContent = 'Saved';
+      setBusy(false);
+      });
+    }).catch(function () {
+      setBusy(false);
+      var cached = readFontsCache();
+      scanFontsBtn.textContent = cached ? '🔤 ' + cached.length : '🔤 System';
+      status.textContent = 'Font access denied';
+      scanFontsBtn.title = 'Permission was denied — allow font access in the browser prompt, then try again';
+      setTimeout(function () { status.textContent = 'Saved'; }, 2500);
+    });
+  });
 
   function updateCounts() {
     const text = editor.textContent || '';
@@ -709,7 +972,48 @@
     URL.revokeObjectURL(url);
   }
 
+  // ---- Recently used fonts: pinned to the top of the dropdown ----
+  var RECENT_FONTS_KEY = 'simpleEditor.recentFonts';
+
+  function readRecentFonts() {
+    try {
+      var list = JSON.parse(localStorage.getItem(RECENT_FONTS_KEY));
+      return Array.isArray(list) ? list : [];
+    } catch (e) { return []; }
+  }
+
+  function renderRecentFonts() {
+    var list = readRecentFonts();
+    var group = document.getElementById('recentFontGroup');
+    if (!group) {
+      group = document.createElement('optgroup');
+      group.id = 'recentFontGroup';
+      group.label = '\u2605 Recently used';
+      fontFamily.insertBefore(group, fontFamily.firstChild);
+    }
+    group.innerHTML = '';
+    list.forEach(function (item) {
+      var opt = document.createElement('option');
+      opt.value = item.value;
+      opt.textContent = item.label;
+      opt.style.fontFamily = item.value; // preview in its own typeface
+      group.appendChild(opt);
+    });
+  }
+
+  function recordFontUsage(value) {
+    if (!value) return;
+    var label = value.replace(/"/g, '').split(',')[0].trim();
+    var list = readRecentFonts().filter(function (i) { return i.value !== value; });
+    list.unshift({ value: value, label: label }); // most recently used first
+    if (list.length > 8) list.length = 8;
+    try { localStorage.setItem(RECENT_FONTS_KEY, JSON.stringify(list)); } catch (e) {}
+    renderRecentFonts();
+    fontFamily.value = value; // group rebuild can drop the selection
+  }
+
   fontFamily.addEventListener('change', function () {
+    recordFontUsage(fontFamily.value);
     var count = currentMarkCount();
     if (count > 1) {
       // Word-highlights active: apply the new font to every occurrence
@@ -725,6 +1029,11 @@
     }
     save();
   });
+
+  // NOTE: a native <select> opens its list in an OS modal loop, so the page
+  // can't repaint a custom cursor or the Loading chip while that popup is up.
+  // Busy feedback is therefore surfaced around the async font *scan* instead
+  // (see setBusy), which is the operation that can actually stall the app.
   fontSize.addEventListener('input', onSizeChanged);
   themeToggle.addEventListener('click', function () {
     applyTheme(!document.body.classList.contains('dark'));
@@ -987,6 +1296,48 @@
     download('document.txt', editor.innerText, 'text/plain;charset=utf-8');
   });
 
+  function buildHtmlExport() {
+    return '<!DOCTYPE html>\n<html>\n<head>\n<meta charset="UTF-8">\n<title>Document</title>\n'
+      + '<style>body{font-family:' + defaultFont + ';font-size:' + defaultSize + 'px;line-height:1.65;margin:40px auto;max-width:720px;}</style>\n'
+      + '</head>\n<body>\n' + editor.innerHTML + '\n</body>\n</html>';
+  }
+
+  // ---- Print: native print dialog, print CSS shows only the document ----
+  document.getElementById('printBtn').addEventListener('click', function () {
+    closePanel();
+    window.print();
+  });
+
+  // ---- Save As: native file dialog (File System Access API) ----
+  document.getElementById('saveBtn').addEventListener('click', function () {
+    var html = buildHtmlExport();
+    var txt = editor.innerText;
+    if (!window.showSaveFilePicker) {
+      // Firefox/Safari: fall back to a regular download
+      download('document.html', html, 'text/html;charset=utf-8');
+      return;
+    }
+    window.showSaveFilePicker({
+      suggestedName: 'document.html',
+      startIn: 'documents',
+      types: [
+        { description: 'HTML document (keeps formatting)', accept: { 'text/html': ['.html'] } },
+        { description: 'Plain text', accept: { 'text/plain': ['.txt'] } }
+      ]
+    }).then(function (handle) {
+      var content = /\.txt$/i.test(handle.name) ? txt : html;
+      return handle.createWritable().then(function (writable) {
+        return writable.write(content).then(function () { return writable.close(); });
+      });
+    }).then(function () {
+      status.textContent = 'Saved to file';
+      setTimeout(function () { status.textContent = 'Saved'; }, 2000);
+    }).catch(function (err) {
+      if (err && err.name === 'AbortError') return; // user cancelled the dialog
+      download('document.html', html, 'text/html;charset=utf-8'); // real failure -> fallback
+    });
+  });
+
   // ---- Reset: clear content + restore default formatting settings ----
   // Two-click inline confirm (native confirm() dialogs can be auto-dismissed
   // on file:// pages, which silently cancelled the old one-click reset)
@@ -1031,10 +1382,7 @@
     doReset();
   });
   document.getElementById('downloadHtml').addEventListener('click', function () {
-    const html = '<!DOCTYPE html>\n<html>\n<head>\n<meta charset="UTF-8">\n<title>Document</title>\n'
-      + '<style>body{font-family:' + defaultFont + ';font-size:' + defaultSize + 'px;line-height:1.65;margin:40px auto;max-width:720px;}</style>\n'
-      + '</head>\n<body>\n' + editor.innerHTML + '\n</body>\n</html>';
-    download('document.html', html, 'text/html;charset=utf-8');
+    download('document.html', buildHtmlExport(), 'text/html;charset=utf-8');
   });
 
   // Keyboard shortcut: Ctrl+Shift+D toggles theme
@@ -1042,6 +1390,10 @@
     if (e.ctrlKey && e.shiftKey && e.code === 'KeyD') {
       e.preventDefault();
       themeToggle.click();
+    }
+    if ((e.ctrlKey || e.metaKey) && e.code === 'KeyS' && !e.shiftKey) {
+      e.preventDefault(); // replace the browser's Save-page dialog with ours
+      document.getElementById('saveBtn').click();
     }
     if (e.key === 'Escape') clearHighlight();
   });
@@ -1139,6 +1491,30 @@
   editor.addEventListener('click', clearHighlight);
 
   load();
+
+  // Show previously used fonts at the top of the list from the start
+  renderRecentFonts();
+
+  // Hydrate the font list from cache immediately — no scan, no permission prompt,
+  // even with thousands of installed families
+  (function hydrateFontCache() {
+    var cached = readFontsCache();
+    if (!cached) return;
+    // Don't rebuild the huge option list at startup — stash it and build lazily
+    // on the first Font-menu open, so every subsequent app open is instant.
+    pendingSystemFonts = cached;
+    scanFontsBtn.textContent = '🔤 ' + cached.length;
+    scanFontsBtn.classList.add('scanned');
+    scanFontsBtn.title = cached.length + ' families cached — the list fills the first time you open the Font menu';
+    // Restore the ENTIRE face catalog (if stored) into memory for this session
+    idbReadFaces(function (faces) {
+      if (Array.isArray(faces) && faces.length) {
+        allFaces = faces;
+        scanFontsBtn.title = cached.length + ' families (' + faces.length + ' faces) cached — the list fills the first time you open the Font menu';
+      }
+    });
+  })();
+
   editor.focus();
 })();
 </script>
